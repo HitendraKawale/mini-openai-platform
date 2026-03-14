@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment files
+.env
+.env.*
+
+# Test / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Build
+build/
+dist/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Docker
+*.pid
+
+# Local model/cache artifacts
+models/
+hf_cache/
+data/
+
+# Mac/Linux temp
+*.swp
+*.swo
