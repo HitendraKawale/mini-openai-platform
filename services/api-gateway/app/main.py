@@ -7,6 +7,7 @@ from starlette.responses import Response
 
 from app.config import settings
 from app.logging_config import configure_logging
+from app.middleware.rate_limit import RateLimitMiddleware
 from app.middleware.request_context import RequestContextMiddleware
 from app.routes.chat import router as chat_router
 from app.routes.documents import router as documents_router
@@ -15,9 +16,9 @@ from app.routes.health import router as health_router
 from app.routes.rag import router as rag_router
 
 REQUEST_COUNT = Counter(
-    "request_count", 
+    "request_count",
     "Total number of HTTP requests",
-    ["method", "path", "status_code" ],
+    ["method", "path", "status_code"],
 )
 
 REQUEST_LATENCY = Histogram(
@@ -40,6 +41,7 @@ app = FastAPI(
 )
 
 app.add_middleware(RequestContextMiddleware)
+app.add_middleware(RateLimitMiddleware)
 
 
 @app.middleware("http")

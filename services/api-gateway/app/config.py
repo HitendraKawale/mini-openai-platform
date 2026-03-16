@@ -18,5 +18,10 @@ class Settings:
         os.getenv("REQUEST_TIMEOUT_SECONDS", "120")
     )
 
+    RATE_LIMIT_REQUESTS: int = int(os.getenv("RATE_LIMIT_REQUESTS", "20"))
+    RATE_LIMIT_WINDOW_SECONDS: int = int(
+        os.getenv("RATE_LIMIT_WINDOW_SECONDS", "60")
+    )
+
 
 settings = Settings()
