@@ -11,6 +11,7 @@ router = APIRouter()
 async def health_check():
     embedding_ok = False
     llm_ok = False
+    qdrant_ok = vector_store.is_ready()
 
     async with httpx.AsyncClient(timeout=10.0) as client:
         try:
@@ -26,10 +27,11 @@ async def health_check():
             llm_ok = False
 
     return {
-        "status": "ok" if embedding_ok and llm_ok else "degraded",
+        "status": "ok" if embedding_ok and llm_ok and qdrant_ok else "degraded",
         "service": "rag-service",
         "embedding_service_reachable": embedding_ok,
         "llm_service_reachable": llm_ok,
+        "qdrant_reachable": qdrant_ok,
         "indexed_documents": vector_store.document_count(),
         "indexed_chunks": vector_store.chunk_count(),
     }

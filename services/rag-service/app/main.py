@@ -10,6 +10,7 @@ from app.logging_config import configure_logging
 from app.routes.documents import router as documents_router
 from app.routes.health import router as health_router
 from app.routes.query import router as query_router
+from app.services.store import vector_store
 
 REQUEST_COUNT = Counter(
     "rag_request_count",
@@ -37,6 +38,7 @@ RAG_QUERIES = Counter(
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     configure_logging(settings.LOG_LEVEL)
+    vector_store.initialize()
     yield
 
 
