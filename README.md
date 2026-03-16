@@ -11,7 +11,58 @@ The platform exposes OpenAI-like APIs for:
 ---
 
 ## Architecture
+![System Architecture](docs/images/architecture.png)
 
+## RAG Flow
+```
+Client
+  │
+  │ POST /v1/rag/query
+  ▼
+API Gateway
+  │
+  │ validate token + request_id
+  ▼
+RAG Service
+  │
+  │ 1. Embed query
+  ▼
+Embedding Service
+  │
+  │ query vector
+  ▼
+RAG Service
+  │
+  │ 2. Retrieve top-k chunks
+  ▼
+Qdrant
+  │
+  │ relevant chunks
+  ▼
+RAG Service
+  │
+  │ 3. Build grounded prompt
+  │ 4. Call LLM Service
+  ▼
+LLM Service
+  │
+  ▼
+Ollama
+  │
+  │ generated grounded answer
+  ▼
+LLM Service
+  │
+  ▼
+RAG Service
+  │
+  │ answer + sources
+  ▼
+API Gateway
+  │
+  ▼
+Client
+```
 ---
 
 ## Services
@@ -127,4 +178,6 @@ Workflow:
 ```
 .github/workflows/ci.yml
 ```
-
+## Grafana dashboards
+![Grafana Dashboards](docs/images/grafana-dashboard1.png)
+![Grafana Dashboard](docs/images/grafana-dashboard2.png)
