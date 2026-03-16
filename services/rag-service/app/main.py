@@ -7,36 +7,41 @@ from starlette.responses import Response
 
 from app.config import settings
 from app.logging_config import configure_logging
-from app.routes.embed import router as embed_router
+from app.routes.documents import router as documents_router
 from app.routes.health import router as health_router
-from app.services.embedding_registry import embedding_registry
+from app.routes.query import router as query_router
 
 REQUEST_COUNT = Counter(
-    "embedding_request_count",
-    "Total number of HTTP requests for embedding-service",
+    "rag_request_count",
+    "Total number of HTTP requests for rag-service",
     ["method", "path", "status_code"],
 )
 
 REQUEST_LATENCY = Histogram(
-    "embedding_request_latency_seconds",
-    "HTTP request latency in seconds for embedding-service",
+    "rag_request_latency_seconds",
+    "HTTP request latency in seconds for rag-service",
     ["method", "path"],
 )
 
-EMBED_INPUT_COUNT = Counter(
-    "embedding_input_total",
-    "Total number of texts embedded",
+UPLOADED_CHUNKS = Counter(
+    "rag_uploaded_chunks_total",
+    "Total number of chunks uploaded to rag-service",
 )
+
+RAG_QUERIES = Counter(
+    "rag_queries_total",
+    "Total number of RAG queries handled",
+)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     configure_logging(settings.LOG_LEVEL)
-    embedding_registry.load()
     yield
 
 
 app = FastAPI(
-    title="Mini OpenAI Embedding Service",
+    title="Mini OpenAI RAG Service",
     version=settings.APP_VERSION,
     lifespan=lifespan,
 )
@@ -63,12 +68,16 @@ async def metrics_middleware(request: Request, call_next):
 
 
 @app.middleware("http")
-async def embedding_metrics_middleware(request: Request, call_next):
+async def rag_stats_middleware(request: Request, call_next):
     response = await call_next(request)
 
-    usage = getattr(request.state, "embedding_usage", None)
-    if usage:
-        EMBED_INPUT_COUNT.inc(usage["input_count"])
+    document_stats = getattr(request.state, "document_upload_stats", None)
+    if document_stats:
+        UPLOADED_CHUNKS.inc(document_stats["chunk_count"])
+
+    query_stats = getattr(request.state, "query_stats", None)
+    if query_stats:
+        RAG_QUERIES.inc(query_stats["query_count"])
 
     return response
 
@@ -79,4 +88,5 @@ async def metrics():
 
 
 app.include_router(health_router)
-app.include_router(embed_router)
+app.include_router(documents_router)
+app.include_router(query_router)
