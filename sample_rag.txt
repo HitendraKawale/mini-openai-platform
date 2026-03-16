@@ -1,0 +1,5 @@
+Vector databases are specialized systems for storing and searching embeddings.
+Embeddings are dense numerical representations of text, images, or other data.
+In retrieval-augmented generation, documents are split into chunks, embedded, and stored.
+When a user asks a question, the system retrieves the most relevant chunks and sends them to the language model as context.
+This helps the model answer based on external knowledge instead of relying only on its internal memory.
