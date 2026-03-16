@@ -48,3 +48,6 @@ data/
 # Mac/Linux temp
 *.swp
 *.swo
+
+# Qdrant
+/qdrant_storage/
