@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: Mini OpenAI Dashboards
+    orgId: 1
+    folder: Mini OpenAI
+    type: file
+    disableDeletion: false
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
