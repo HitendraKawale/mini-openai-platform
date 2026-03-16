@@ -7,6 +7,7 @@ from starlette.responses import Response
 
 from app.config import settings
 from app.logging_config import configure_logging
+from app.middleware.request_context import RequestContextMiddleware
 from app.routes.generate import router as generate_router
 from app.routes.health import router as health_router
 
@@ -40,6 +41,8 @@ app = FastAPI(
     version=settings.APP_VERSION,
     lifespan=lifespan,
 )
+
+app.add_middleware(RequestContextMiddleware)
 
 
 @app.middleware("http")

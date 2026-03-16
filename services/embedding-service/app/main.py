@@ -7,6 +7,7 @@ from starlette.responses import Response
 
 from app.config import settings
 from app.logging_config import configure_logging
+from app.middleware.request_context import RequestContextMiddleware
 from app.routes.embed import router as embed_router
 from app.routes.health import router as health_router
 from app.services.embedding_registry import embedding_registry
@@ -28,6 +29,7 @@ EMBED_INPUT_COUNT = Counter(
     "Total number of texts embedded",
 )
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     configure_logging(settings.LOG_LEVEL)
@@ -40,6 +42,8 @@ app = FastAPI(
     version=settings.APP_VERSION,
     lifespan=lifespan,
 )
+
+app.add_middleware(RequestContextMiddleware)
 
 
 @app.middleware("http")

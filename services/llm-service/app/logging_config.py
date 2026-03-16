@@ -1,5 +1,6 @@
 import logging
 import sys
+
 from pythonjsonlogger import jsonlogger
 
 
@@ -16,3 +17,7 @@ def configure_logging(log_level: str = "INFO") -> None:
     )
     handler.setFormatter(formatter)
     root_logger.addHandler(handler)
+
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
