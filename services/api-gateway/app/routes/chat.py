@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from app.config import settings
 from app.middleware.auth import verify_api_key
 from app.models.chat import ChatCompletionRequest
+from app.services.cache import gateway_cache
 from app.services.downstream_client import post_json
 
 logger = logging.getLogger(__name__)
@@ -29,13 +30,20 @@ async def chat_completions(payload: ChatCompletionRequest, request: Request):
             "do_sample": True,
         }
 
+        cache_key = gateway_cache.make_key("chat", downstream_payload)
+
+        if settings.CACHE_ENABLED:
+            cached = gateway_cache.get(cache_key)
+            if cached is not None:
+                return cached
+
         result = await post_json(
             url=f"{settings.LLM_SERVICE_URL}/generate",
             payload=downstream_payload,
             request_id=request.state.request_id,
         )
 
-        return {
+        response_payload = {
             "id": request.state.request_id,
             "object": "chat.completion",
             "model": result["model_name"],
@@ -51,6 +59,15 @@ async def chat_completions(payload: ChatCompletionRequest, request: Request):
             ],
             "usage": result["usage"],
         }
+
+        if settings.CACHE_ENABLED:
+            gateway_cache.set(
+                cache_key,
+                response_payload,
+                settings.CACHE_TTL_SECONDS,
+            )
+
+        return response_payload
 
     except httpx.HTTPStatusError as exc:
         logger.exception("llm_service_http_error")

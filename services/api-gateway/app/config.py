@@ -23,5 +23,8 @@ class Settings:
         os.getenv("RATE_LIMIT_WINDOW_SECONDS", "60")
     )
 
+    CACHE_ENABLED: bool = os.getenv("CACHE_ENABLED", "true").lower() == "true"
+    CACHE_TTL_SECONDS: int = int(os.getenv("CACHE_TTL_SECONDS", "120"))
+
 
 settings = Settings()
