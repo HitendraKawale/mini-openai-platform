@@ -13,11 +13,21 @@ env/
 # Environment files
 .env
 .env.*
+!.env.example
 
 # Test / coverage
 .pytest_cache/
 .coverage
+.coverage.*
 htmlcov/
+coverage.xml
+
+# Type/check/lint caches
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.tox/
+.nox/
 
 # IDE
 .vscode/
@@ -25,6 +35,7 @@ htmlcov/
 
 # OS
 .DS_Store
+Thumbs.db
 
 # Logs
 *.log
@@ -37,17 +48,29 @@ dist/
 # Jupyter
 .ipynb_checkpoints/
 
-# Docker
+# Docker / local runtime
 *.pid
+docker-compose.override.yml
+
+#local stuff
+openapi.json
 
 # Local model/cache artifacts
 models/
 hf_cache/
 data/
+.cache/
 
 # Mac/Linux temp
 *.swp
 *.swo
+*~
 
-# Qdrant
-/qdrant_storage/
+# Qdrant / local vector storage
+qdrant_storage/
+*.mmap
+*.dat
+wal/
+
+# Optional: screenshots / exports if not meant for repo
+# docs/images/*.png
