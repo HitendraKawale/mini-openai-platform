@@ -201,10 +201,30 @@ The rag-service also exports retrieval-quality metrics at runtime —
 `rag_insufficient_context_answers_total` (answers that said the context was
 insufficient) — both graphed in the Grafana dashboard.
 
+## Frontend
+
+A React chat UI (served by nginx at `http://localhost:8080`) that exposes
+the platform's internals instead of hiding them:
+
+- **RAG mode** — upload documents, ask questions, expand the retrieved
+  source chunks with their similarity scores; answers served by the
+  semantic cache arrive in milliseconds wearing a **⚡ semantic cache** badge
+- **Chat mode** — every answer shows which model served it and the routing
+  verdict (`routed small · difficulty 0.05`), so the cost-aware routing is
+  visible per message
+- per-message latency, gateway health indicator, API key entry (stored in
+  the browser only — never baked into the bundle)
+
+The nginx container proxies `/api/*` to the gateway, so the browser talks
+to a single origin and no internal service is exposed. For frontend
+development: `cd frontend && npm install && npm run dev` (the Vite dev
+server proxies to `localhost:8000`).
+
 ## Start the platform
 ```bash
 docker compose -f infrastructure/compose/docker-compose.yml up -d --build
 ```
+Then open **http://localhost:8080**.
 ## Check Services
 ```bash
 docker compose -f infrastructure/compose/docker-compose.yml ps

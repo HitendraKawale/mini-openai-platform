@@ -56,6 +56,10 @@ docker-compose.override.yml
 openapi.json
 evals/report.json
 
+# Frontend
+node_modules/
+frontend/dist/
+
 # Local model/cache artifacts
 models/
 hf_cache/
