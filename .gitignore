@@ -60,11 +60,11 @@ evals/report.json
 node_modules/
 frontend/dist/
 
-# Local model/cache artifacts
-models/
-hf_cache/
-data/
-.cache/
+# Local model/cache artifacts (root-level only — services/*/app/models are source code)
+/models/
+/hf_cache/
+/data/
+/.cache/
 
 # Mac/Linux temp
 *.swp
