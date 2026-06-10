@@ -118,6 +118,50 @@ Tuning (env vars on `rag-service`):
 | `SEMANTIC_CACHE_SIMILARITY_THRESHOLD` | `0.95` | min cosine similarity for a hit |
 | `SEMANTIC_CACHE_TTL_SECONDS` | `600` | entry lifetime |
 
+## RAG Evaluation & Quality Gate
+
+Most RAG demos can serve answers but cannot tell you whether they are any
+good. This platform ships its own evaluation harness and **blocks CI when
+retrieval quality regresses**.
+
+The pieces (all under `evals/`):
+
+- **`corpus/`** — a small evaluation corpus of three documents on distinct
+  topics, so retrieval mistakes are detectable
+- **`golden.jsonl`** — golden questions, each with `expected_phrases` that
+  must appear in a retrieved chunk and a `reference_answer` for judging
+- **`run_eval.py`** — uploads the corpus, runs every golden question, and
+  computes:
+  - **hit rate (recall@k)** — did any retrieved chunk contain an expected phrase?
+  - **MRR** — how high was the first relevant chunk ranked?
+  - **faithfulness** (optional, needs the LLM) — an LLM judge scores each
+    generated answer 1–5 against the reference answer
+
+Run the retrieval-only gate (no LLM needed — this is what CI runs):
+
+```bash
+python evals/run_eval.py --retrieval-only --min-hit-rate 0.8 --min-mrr 0.5
+```
+
+Run the full evaluation including LLM-judged answer quality:
+
+```bash
+python evals/run_eval.py --min-hit-rate 0.8 --min-mrr 0.5 --min-faithfulness 3.5
+```
+
+The script writes `evals/report.json` with per-question results and exits
+non-zero if any threshold is missed. The `rag-quality-gate` CI job spins up
+qdrant + embedding-service + rag-service (no Ollama required, thanks to the
+LLM-free `POST /retrieve` endpoint) and fails the build on regression.
+
+> Note: the eval uploads its corpus into the running platform's Qdrant
+> collection, so prefer running it against a dev stack.
+
+The rag-service also exports retrieval-quality metrics at runtime —
+`rag_retrieval_top_score` (similarity of the best chunk per query) and
+`rag_insufficient_context_answers_total` (answers that said the context was
+insufficient) — both graphed in the Grafana dashboard.
+
 ## Start the platform
 ```bash
 docker compose -f infrastructure/compose/docker-compose.yml up -d --build

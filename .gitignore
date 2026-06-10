@@ -54,6 +54,7 @@ docker-compose.override.yml
 
 #local stuff
 openapi.json
+evals/report.json
 
 # Local model/cache artifacts
 models/

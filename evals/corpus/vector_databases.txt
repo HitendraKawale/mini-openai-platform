@@ -1,0 +1,7 @@
+Vector databases store high-dimensional embedding vectors and retrieve them by similarity rather than by exact matching.
+An embedding is a dense numerical representation of text, images, or audio, produced by a neural network.
+Similarity between two embeddings is usually measured with cosine similarity, which compares the angle between vectors.
+To keep search fast at scale, vector databases build approximate nearest neighbor indexes such as HNSW graphs.
+HNSW stands for Hierarchical Navigable Small World, a layered graph structure that allows logarithmic search time.
+Qdrant is an open-source vector database that stores vectors in named collections and attaches JSON payloads to every point.
+Payload filtering lets a query combine vector similarity with structured conditions such as matching a document id.

@@ -51,6 +51,17 @@ SEMANTIC_CACHE_LATENCY_SAVED = Counter(
     "Estimated LLM generation seconds skipped thanks to semantic cache hits",
 )
 
+RETRIEVAL_TOP_SCORE = Histogram(
+    "rag_retrieval_top_score",
+    "Similarity score of the best retrieved chunk per query",
+    buckets=(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0),
+)
+
+INSUFFICIENT_CONTEXT_ANSWERS = Counter(
+    "rag_insufficient_context_answers_total",
+    "Number of generated answers that said the context was insufficient",
+)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -108,6 +119,16 @@ async def rag_stats_middleware(request: Request, call_next):
             )
         elif "cache_hit" in query_stats:
             SEMANTIC_CACHE_MISSES.inc()
+
+        if query_stats.get("top_score") is not None:
+            RETRIEVAL_TOP_SCORE.observe(query_stats["top_score"])
+
+        if query_stats.get("insufficient_context"):
+            INSUFFICIENT_CONTEXT_ANSWERS.inc()
+
+    retrieval_stats = getattr(request.state, "retrieval_stats", None)
+    if retrieval_stats and retrieval_stats.get("top_score") is not None:
+        RETRIEVAL_TOP_SCORE.observe(retrieval_stats["top_score"])
 
     return response
 

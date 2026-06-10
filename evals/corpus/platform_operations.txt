@@ -1,0 +1,6 @@
+The platform protects the language model with several layers at the API gateway.
+Rate limiting uses a sliding window per API key, rejecting requests once the window budget is exhausted.
+Every request receives an X-Request-ID header so that one request can be traced across all services in the logs.
+The semantic cache stores answered queries by their embedding, so a paraphrased question can reuse a previous answer without calling the language model again.
+Cached entries expire after a time-to-live and the whole cache is invalidated whenever a new document is uploaded.
+Prometheus scrapes every service for metrics and Grafana renders dashboards for request rate, latency, token usage, and cache hit rate.

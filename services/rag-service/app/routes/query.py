@@ -5,7 +5,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request, status
 
 from app.config import settings
-from app.models.query import RagQueryRequest, RagQueryResponse
+from app.models.query import RagQueryRequest, RagQueryResponse, RetrieveResponse
 from app.services.clients import embed_texts, generate_answer
 from app.services.prompt_builder import build_rag_prompt
 from app.services.semantic_cache import semantic_cache
@@ -14,6 +14,17 @@ from app.services.store import vector_store
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["query"])
+
+INSUFFICIENT_CONTEXT_MARKERS = (
+    "not contain enough information",
+    "does not contain enough",
+    "not enough information",
+)
+
+
+def looks_insufficient(answer: str) -> bool:
+    lowered = answer.lower()
+    return any(marker in lowered for marker in INSUFFICIENT_CONTEXT_MARKERS)
 
 
 @router.post("/query", response_model=RagQueryResponse)
@@ -91,6 +102,8 @@ async def rag_query(payload: RagQueryRequest, request: Request):
             "query_count": 1,
             "cache_hit": False,
             "latency_saved_seconds": 0.0,
+            "top_score": retrieved[0]["score"],
+            "insufficient_context": looks_insufficient(answer),
         }
 
         return {
@@ -114,4 +127,55 @@ async def rag_query(payload: RagQueryRequest, request: Request):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"RAG query failed: {str(exc)}",
+        ) from exc
+
+
+@router.post("/retrieve", response_model=RetrieveResponse)
+async def retrieve_only(payload: RagQueryRequest, request: Request):
+    """Retrieval without generation. Used by the evaluation harness to
+    grade retrieval quality without needing the LLM to be available."""
+    try:
+        if vector_store.chunk_count() == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No documents have been indexed yet",
+            )
+
+        top_k = payload.top_k or settings.DEFAULT_TOP_K
+
+        query_embedding = await embed_texts([payload.query])
+        retrieved = vector_store.search(query_embedding[0], top_k=top_k)
+
+        if retrieved:
+            request.state.retrieval_stats = {
+                "top_score": retrieved[0]["score"],
+            }
+
+        return {
+            "query": payload.query,
+            "top_k": top_k,
+            "sources": [
+                {
+                    "document_id": item["document_id"],
+                    "chunk_id": item["chunk_id"],
+                    "score": item["score"],
+                    "text": item["text"],
+                }
+                for item in retrieved
+            ],
+        }
+
+    except httpx.HTTPError as exc:
+        logger.exception("downstream_service_failed")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Downstream service failed: {str(exc)}",
+        ) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("retrieve_failed")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Retrieve failed: {str(exc)}",
         ) from exc

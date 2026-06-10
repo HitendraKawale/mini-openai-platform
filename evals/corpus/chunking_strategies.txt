@@ -1,0 +1,7 @@
+Chunking is the process of splitting a document into smaller pieces before embedding them.
+If chunks are too large, the embedding averages too many ideas and retrieval precision drops.
+If chunks are too small, individual chunks lose the surrounding context needed to answer questions.
+A common baseline is fixed-size chunking with overlap, where consecutive chunks share a band of words so that sentences cut at a boundary still appear intact in one chunk.
+Sentence-aware chunking splits on sentence boundaries instead of word counts, which keeps every chunk grammatically complete.
+The overlap region also protects against losing facts that straddle two chunks.
+Retrieval quality is usually evaluated with recall at k and mean reciprocal rank against a golden set of questions.
