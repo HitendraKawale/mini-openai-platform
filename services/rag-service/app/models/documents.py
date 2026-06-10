@@ -1,0 +1,10 @@
+from typing import List
+
+from pydantic import BaseModel
+
+
+class DocumentUploadResponse(BaseModel):
+    document_id: str
+    filename: str
+    chunk_count: int
+    chunks: List[str]
