@@ -18,6 +18,10 @@ services:
       LOG_LEVEL: INFO
       OLLAMA_BASE_URL: http://host.docker.internal:11434
       OLLAMA_MODEL: phi3:latest
+      ROUTING_ENABLED: "true"
+      OLLAMA_SMALL_MODEL: llama3.2:3b
+      OLLAMA_LARGE_MODEL: phi3:latest
+      ROUTING_THRESHOLD: 0.3
       REQUEST_TIMEOUT_SECONDS: 120
     ports:
       - "8001:8001"

@@ -68,7 +68,7 @@ Client
 ## Services
 
 - **api-gateway** — auth, request IDs, rate limiting, caching, routing
-- **llm-service** — text generation using Ollama (`phi3:latest`)
+- **llm-service** — text generation using Ollama, with difficulty-based model routing
 - **embedding-service** — embeddings using `all-MiniLM-L6-v2`
 - **rag-service** — ingestion, chunking, retrieval, answer generation
 - **qdrant** — vector database
@@ -84,6 +84,7 @@ Client
 - rate limiting
 - response caching
 - **semantic caching for RAG queries** — semantically similar queries skip the LLM entirely
+- **smart model routing** — easy prompts go to a small model, hard ones to a larger one, with automatic fallback
 - persistent Qdrant storage
 - Prometheus + Grafana monitoring (including cache hit rate and LLM time saved)
 - Docker healthchecks
@@ -117,6 +118,40 @@ Tuning (env vars on `rag-service`):
 | `SEMANTIC_CACHE_ENABLED` | `true` | turn the cache on/off |
 | `SEMANTIC_CACHE_SIMILARITY_THRESHOLD` | `0.95` | min cosine similarity for a hit |
 | `SEMANTIC_CACHE_TTL_SECONDS` | `600` | entry lifetime |
+
+## Smart Model Routing
+
+Running every prompt through the biggest model wastes compute. The
+llm-service routes each generation by a transparent difficulty heuristic
+(prompt length, reasoning keywords like *explain/compare/why*, multi-part
+questions, code) scored in `[0, 1]`:
+
+- score below the threshold → **small model** (`llama3.2:3b`)
+- score at or above it → **large model** (`phi3:latest`)
+- RAG prompts carry retrieved context, so they are long and naturally
+  route to the large model
+- `"model": "auto"` (or omitted) enables routing; an explicit model name
+  pins the request
+- if the chosen tier fails, the request **falls back** to the other tier
+  instead of erroring
+
+Responses include the verdict:
+
+```json
+"routing": {"decision": "routed_small", "difficulty": 0.12, "fallback_used": false}
+```
+
+Per-model request rate, P95 latency, token usage, routing decisions and
+fallbacks are all exported to Prometheus and graphed in Grafana.
+
+Tuning (env vars on `llm-service`):
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `ROUTING_ENABLED` | `false` (`true` in compose) | turn routing on/off |
+| `OLLAMA_SMALL_MODEL` | `llama3.2:3b` | model for easy prompts |
+| `OLLAMA_LARGE_MODEL` | `phi3:latest` | model for hard prompts |
+| `ROUTING_THRESHOLD` | `0.3` | difficulty cutoff between tiers |
 
 ## RAG Evaluation & Quality Gate
 
@@ -185,13 +220,15 @@ curl -X POST http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer dev-secret-key" \
   -d '{
-    "model": "phi3:latest",
+    "model": "auto",
     "messages": [{"role": "user", "content": "Explain what are vector databases briefly."}],
     "temperature": 0.7,
     "max_tokens": 80,
     "stream": false
   }'
 ```
+`"model": "auto"` (the default) lets the router pick a model by prompt
+difficulty; pass an explicit name like `"phi3:latest"` to pin one.
 ### Embeddings
 ```bash
 curl -X POST http://localhost:8000/v1/embeddings \

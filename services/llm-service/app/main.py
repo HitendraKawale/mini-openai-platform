@@ -26,7 +26,24 @@ REQUEST_LATENCY = Histogram(
 TOKEN_USAGE = Counter(
     "llm_token_usage_total",
     "Total token usage for llm-service",
-    ["type"],
+    ["type", "model"],
+)
+
+GENERATIONS = Counter(
+    "llm_generations_total",
+    "Generations served, by model and routing decision",
+    ["model", "decision"],
+)
+
+GENERATION_LATENCY = Histogram(
+    "llm_generation_latency_seconds",
+    "LLM generation latency in seconds, by model",
+    ["model"],
+)
+
+ROUTING_FALLBACKS = Counter(
+    "llm_routing_fallbacks_total",
+    "Generations that fell back to the other model tier after a failure",
 )
 
 
@@ -69,11 +86,25 @@ async def metrics_middleware(request: Request, call_next):
 async def token_metrics_middleware(request: Request, call_next):
     response = await call_next(request)
 
+    generation_stats = getattr(request.state, "generation_stats", None)
+    model = (generation_stats or {}).get("model", "unknown")
+
     usage = getattr(request.state, "token_usage", None)
     if usage:
-        TOKEN_USAGE.labels(type="input").inc(usage["input_tokens"])
-        TOKEN_USAGE.labels(type="output").inc(usage["output_tokens"])
-        TOKEN_USAGE.labels(type="total").inc(usage["total_tokens"])
+        TOKEN_USAGE.labels(type="input", model=model).inc(usage["input_tokens"])
+        TOKEN_USAGE.labels(type="output", model=model).inc(usage["output_tokens"])
+        TOKEN_USAGE.labels(type="total", model=model).inc(usage["total_tokens"])
+
+    if generation_stats:
+        GENERATIONS.labels(
+            model=model,
+            decision=generation_stats["decision"],
+        ).inc()
+        GENERATION_LATENCY.labels(model=model).observe(
+            generation_stats["duration_seconds"]
+        )
+        if generation_stats.get("fallback_used"):
+            ROUTING_FALLBACKS.inc()
 
     return response
 

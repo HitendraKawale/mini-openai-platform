@@ -23,15 +23,29 @@ class OllamaClient:
             logger.exception("ollama_health_check_failed")
             return False
 
+    async def list_models(self) -> list[str]:
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.get(f"{self.base_url}/api/tags")
+                response.raise_for_status()
+                data = response.json()
+            return [model["name"] for model in data.get("models", [])]
+        except Exception:
+            logger.exception("ollama_list_models_failed")
+            return []
+
     async def generate(
         self,
         prompt: str,
         max_new_tokens: int,
         temperature: float,
         do_sample: bool,
+        model: str | None = None,
     ) -> dict:
+        model_name = model or self.model_name
+
         payload = {
-            "model": self.model_name,
+            "model": model_name,
             "prompt": prompt,
             "stream": False,
             "options": {
@@ -43,7 +57,7 @@ class OllamaClient:
         logger.info(
             "ollama_generate_request",
             extra={
-                "model_name": self.model_name,
+                "model_name": model_name,
                 "max_new_tokens": max_new_tokens,
                 "temperature": temperature,
                 "do_sample": do_sample,
@@ -65,7 +79,7 @@ class OllamaClient:
 
         return {
             "generated_text": generated_text,
-            "model_name": data.get("model", self.model_name),
+            "model_name": data.get("model", model_name),
             "usage": {
                 "input_tokens": input_tokens,
                 "output_tokens": output_tokens,

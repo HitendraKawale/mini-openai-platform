@@ -28,6 +28,7 @@ async def chat_completions(payload: ChatCompletionRequest, request: Request):
             "max_new_tokens": payload.max_tokens,
             "temperature": payload.temperature,
             "do_sample": True,
+            "model": payload.model,
         }
 
         cache_key = gateway_cache.make_key("chat", downstream_payload)
@@ -58,6 +59,7 @@ async def chat_completions(payload: ChatCompletionRequest, request: Request):
                 }
             ],
             "usage": result["usage"],
+            "routing": result.get("routing"),
         }
 
         if settings.CACHE_ENABLED:
