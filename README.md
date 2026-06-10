@@ -19,7 +19,38 @@ Everything is observable: 16 Grafana panels cover traffic, latency, tokens, cach
 
 ## Architecture
 
-![System Architecture](docs/images/architecture.png)
+```
+        browser                          curl / any OpenAI-style client
+           │                                          │
+           ▼                                          │
+ ┌──────────────────┐                                 │
+ │  frontend :8080  │                                 │
+ │ React SPA, nginx ├──── proxies /api/* ────┐        │
+ └──────────────────┘                        ▼        ▼
+                                   ┌──────────────────────────┐
+                                   │     api-gateway :8000    │
+                                   │ auth · rate limit · cache│
+                                   │ CORS · upload caps       │
+                                   └──────┬────────────┬──────┘
+                                          │            │
+                  ┌───────────────────────┘            │
+                  ▼                                    ▼
+       ┌────────────────────┐   grounded     ┌────────────────────┐
+       │  rag-service :8003 │   prompt       │  llm-service :8001 │
+       │ chunking           ├───────────────►│ difficulty-based   │
+       │ retrieval          │                │ model router       │
+       │ semantic cache     │                │ small ⇄ large tier │
+       └────┬──────────┬────┘                └─────────┬──────────┘
+            │          │                               │
+            ▼          ▼                               ▼
+ ┌──────────────────┐ ┌────────────────┐    ┌─────────────────────┐
+ │ embedding-service│ │  qdrant :6333  │    │    Ollama :11434    │
+ │ :8002            │ │ doc chunks +   │    │ on host (dev) or    │
+ │ MiniLM-L6-v2     │ │ semantic cache │    │ in the stack (prod) │
+ └──────────────────┘ └────────────────┘    └─────────────────────┘
+
+ prometheus :9090 scrapes every service ───► grafana :3000 (16 panels)
+```
 
 | Service | Responsibility |
 |---|---|
@@ -182,18 +213,39 @@ curl -X POST http://localhost:8000/v1/rag/query \
 
 ## Production Deployment
 
-The base compose file binds every port to `127.0.0.1`; the production overlay additionally runs Ollama **inside** the stack with a one-shot model puller, so a VPS deployment is:
+Target topology: one VPS, Docker Compose, Caddy for TLS. The base compose file binds every port to `127.0.0.1`, so **nothing is internet-reachable until you deliberately put a reverse proxy in front of the frontend** — exposing a service is an explicit act, not a default.
+
+**1. Provision.** Any VPS with ~8 GB RAM runs both CPU model tiers (`llama3.2:3b` ≈ 2 GB, `phi3` ≈ 4 GB resident). Install Docker with the compose plugin.
+
+**2. Configure secrets** — create `infrastructure/compose/.env` (compose picks it up automatically; it never enters the image):
 
 ```bash
-export API_GATEWAY_API_KEYS="<comma-separated keys>"   # one per client, constant-time compared
-export GRAFANA_ADMIN_PASSWORD="<password>"
-export CORS_ALLOWED_ORIGINS="https://your-domain.example"
+API_GATEWAY_API_KEYS=key-for-frontend,key-for-cli   # one per client, constant-time compared
+GRAFANA_ADMIN_PASSWORD=<strong password>
+CORS_ALLOWED_ORIGINS=https://demo.example.com
+```
 
+**3. Launch with the production overlay.** It runs Ollama *inside* the stack (no host install) and a one-shot job pulls both model tiers into a persistent volume on first boot:
+
+```bash
 docker compose -f infrastructure/compose/docker-compose.yml \
                -f infrastructure/compose/docker-compose.prod.yml up -d --build
 ```
 
-Put a TLS-terminating reverse proxy (Caddy, nginx) in front of the frontend container and nothing else needs to be exposed. Uploads are capped (`MAX_UPLOAD_BYTES`, default 5 MB) and rate limiting is per API key.
+**4. Expose with TLS.** Point a DNS A record at the VPS and let Caddy terminate HTTPS on the host, forwarding to the loopback-bound frontend:
+
+```
+# /etc/caddy/Caddyfile
+demo.example.com {
+    reverse_proxy 127.0.0.1:8080
+}
+```
+
+That single hostname serves both the UI and the API — the frontend's nginx already proxies `/api/*` to the gateway internally. To share dashboards, add a second site block for Grafana (`reverse_proxy 127.0.0.1:3000`); everything else stays private.
+
+**5. Operate.** Updates are `git pull` + the same compose command; Qdrant data, Grafana state and pulled models live in named volumes and survive rebuilds. Uploads are capped at `MAX_UPLOAD_BYTES` (5 MB default) and rate limiting is per API key.
+
+> CPU inference on a VPS takes a few seconds per generated answer — which makes the semantic cache demo *better*: paraphrased questions visibly snap back in milliseconds.
 
 ## Development
 
