@@ -283,6 +283,36 @@ Host machine also runs:
 │       :11434         │
 └──────────────────────┘
 ```
+
+All published ports are bound to `127.0.0.1`, so even on a public host
+nothing is exposed until a reverse proxy is put in front of the gateway.
+
+### Production overlay
+
+`docker-compose.prod.yml` runs Ollama **inside** the stack (with a one-shot
+job that pulls both routing tiers into a persistent volume), so a VPS
+deployment is a single command:
+
+```bash
+export API_GATEWAY_API_KEYS="<comma-separated real keys>"
+export GRAFANA_ADMIN_PASSWORD="<password>"
+export CORS_ALLOWED_ORIGINS="https://your-frontend.example.com"
+
+docker compose -f infrastructure/compose/docker-compose.yml \
+               -f infrastructure/compose/docker-compose.prod.yml up -d --build
+```
+
+### Security hardening
+
+- **API keys** — `API_GATEWAY_API_KEYS` accepts multiple comma-separated
+  keys (e.g. one per client); comparison is constant-time. The
+  `dev-secret-key` default only applies when no env is set.
+- **CORS** — `CORS_ALLOWED_ORIGINS` restricts browser access to the
+  gateway (defaults to `*` for local development).
+- **Upload cap** — uploads larger than `MAX_UPLOAD_BYTES` (default 5 MB)
+  are rejected with `413` before touching the RAG service.
+- **Port topology** — internal services (LLM, embeddings, RAG, Qdrant,
+  Prometheus) are loopback-bound; only a reverse proxy should be exposed.
 ## CI
 
 Three jobs in `.github/workflows/ci.yml`:

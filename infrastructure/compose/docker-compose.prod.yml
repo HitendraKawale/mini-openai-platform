@@ -1,0 +1,47 @@
+# Production overlay: runs Ollama inside the stack instead of on the host.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# Set real secrets in the environment (or an .env file next to the compose
+# files) before deploying:
+#
+#   API_GATEWAY_API_KEYS=<comma-separated keys>
+#   GRAFANA_ADMIN_PASSWORD=<password>
+#   CORS_ALLOWED_ORIGINS=https://your-frontend.example.com
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: mini-openai-ollama
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  # One-shot job that pulls the routing tiers into the ollama volume.
+  ollama-models:
+    image: ollama/ollama:latest
+    container_name: mini-openai-ollama-models
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["ollama pull llama3.2:3b && ollama pull phi3:latest"]
+    restart: "no"
+
+  llm-service:
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434
+    depends_on:
+      ollama:
+        condition: service_healthy
+
+volumes:
+  ollama_data:

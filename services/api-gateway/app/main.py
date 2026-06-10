@@ -2,6 +2,7 @@ import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 from starlette.responses import Response
 
@@ -42,6 +43,13 @@ app = FastAPI(
 
 app.add_middleware(RequestContextMiddleware)
 app.add_middleware(RateLimitMiddleware)
+# Added last so it is outermost: even 429s get CORS headers.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.CORS_ALLOWED_ORIGINS,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.middleware("http")

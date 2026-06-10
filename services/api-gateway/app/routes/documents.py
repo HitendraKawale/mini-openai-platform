@@ -17,6 +17,15 @@ async def upload_document(request: Request, file: UploadFile = File(...)):
     try:
         contents = await file.read()
 
+        if len(contents) > settings.MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=(
+                    f"File exceeds the maximum upload size of "
+                    f"{settings.MAX_UPLOAD_BYTES} bytes"
+                ),
+            )
+
         result = await post_file(
             url=f"{settings.RAG_SERVICE_URL}/documents/upload",
             filename=file.filename,
@@ -39,6 +48,8 @@ async def upload_document(request: Request, file: UploadFile = File(...)):
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"RAG service unreachable: {str(exc)}",
         ) from exc
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.exception("gateway_document_upload_failed")
         raise HTTPException(
