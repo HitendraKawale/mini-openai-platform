@@ -83,10 +83,40 @@ Client
 - API key auth
 - rate limiting
 - response caching
+- **semantic caching for RAG queries** — semantically similar queries skip the LLM entirely
 - persistent Qdrant storage
-- Prometheus + Grafana monitoring
+- Prometheus + Grafana monitoring (including cache hit rate and LLM time saved)
 - Docker healthchecks
 - GitHub Actions CI
+
+## Semantic Cache
+
+Exact-match caches are nearly useless for natural language — "how does RAG work?"
+and "explain how retrieval augmented generation works" never share a cache key.
+This platform caches at the *meaning* level instead:
+
+1. Every answered RAG query is stored in a dedicated Qdrant collection
+   (`rag_semantic_cache`) keyed by its **query embedding**, along with the
+   answer, sources, and how long generation took.
+2. New queries are embedded (which the RAG flow needs anyway), then checked
+   against the cache first. A cosine similarity above the threshold
+   (default `0.95`) returns the cached answer — skipping retrieval and the
+   LLM call entirely.
+3. Entries expire after a TTL (default 10 min), and the whole cache is
+   invalidated when new documents are uploaded, since the corpus changed.
+
+Cached responses are marked with `"cached": true`, and Prometheus tracks
+`rag_semantic_cache_hits_total`, `rag_semantic_cache_misses_total`, and
+`rag_semantic_cache_latency_saved_seconds_total` — the Grafana dashboard
+shows the hit rate and total LLM generation time saved.
+
+Tuning (env vars on `rag-service`):
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `SEMANTIC_CACHE_ENABLED` | `true` | turn the cache on/off |
+| `SEMANTIC_CACHE_SIMILARITY_THRESHOLD` | `0.95` | min cosine similarity for a hit |
+| `SEMANTIC_CACHE_TTL_SECONDS` | `600` | entry lifetime |
 
 ## Start the platform
 ```bash

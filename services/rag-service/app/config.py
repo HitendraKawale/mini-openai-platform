@@ -33,5 +33,19 @@ class Settings:
     )
     VECTOR_SIZE: int = int(os.getenv("VECTOR_SIZE", "384"))
 
+    SEMANTIC_CACHE_ENABLED: bool = (
+        os.getenv("SEMANTIC_CACHE_ENABLED", "true").lower() == "true"
+    )
+    SEMANTIC_CACHE_COLLECTION_NAME: str = os.getenv(
+        "SEMANTIC_CACHE_COLLECTION_NAME",
+        "rag_semantic_cache",
+    )
+    SEMANTIC_CACHE_SIMILARITY_THRESHOLD: float = float(
+        os.getenv("SEMANTIC_CACHE_SIMILARITY_THRESHOLD", "0.95")
+    )
+    SEMANTIC_CACHE_TTL_SECONDS: float = float(
+        os.getenv("SEMANTIC_CACHE_TTL_SECONDS", "600")
+    )
+
 
 settings = Settings()

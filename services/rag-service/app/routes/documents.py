@@ -6,6 +6,7 @@ from fastapi import APIRouter, File, HTTPException, Request, UploadFile, status
 from app.models.documents import DocumentUploadResponse
 from app.services.chunking import chunk_text
 from app.services.clients import embed_texts
+from app.services.semantic_cache import semantic_cache
 from app.services.store import new_document_id, vector_store
 from app.services.text_extractor import TextExtractionError, extract_text
 
@@ -36,6 +37,9 @@ async def upload_document(request: Request, file: UploadFile = File(...)):
             chunks=chunks,
             embeddings=embeddings,
         )
+
+        # Cached answers may no longer reflect the corpus once it changes.
+        semantic_cache.clear()
 
         request.state.document_upload_stats = {
             "chunk_count": len(chunks),

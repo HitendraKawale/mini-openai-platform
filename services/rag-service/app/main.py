@@ -11,6 +11,7 @@ from app.middleware.request_context import RequestContextMiddleware
 from app.routes.documents import router as documents_router
 from app.routes.health import router as health_router
 from app.routes.query import router as query_router
+from app.services.semantic_cache import semantic_cache
 from app.services.store import vector_store
 
 REQUEST_COUNT = Counter(
@@ -35,11 +36,27 @@ RAG_QUERIES = Counter(
     "Total number of RAG queries handled",
 )
 
+SEMANTIC_CACHE_HITS = Counter(
+    "rag_semantic_cache_hits_total",
+    "Total number of RAG queries served from the semantic cache",
+)
+
+SEMANTIC_CACHE_MISSES = Counter(
+    "rag_semantic_cache_misses_total",
+    "Total number of RAG queries that missed the semantic cache",
+)
+
+SEMANTIC_CACHE_LATENCY_SAVED = Counter(
+    "rag_semantic_cache_latency_saved_seconds_total",
+    "Estimated LLM generation seconds skipped thanks to semantic cache hits",
+)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     configure_logging(settings.LOG_LEVEL)
     vector_store.initialize()
+    semantic_cache.initialize()
     yield
 
 
@@ -83,6 +100,14 @@ async def rag_stats_middleware(request: Request, call_next):
     query_stats = getattr(request.state, "query_stats", None)
     if query_stats:
         RAG_QUERIES.inc(query_stats["query_count"])
+
+        if query_stats.get("cache_hit"):
+            SEMANTIC_CACHE_HITS.inc()
+            SEMANTIC_CACHE_LATENCY_SAVED.inc(
+                query_stats.get("latency_saved_seconds", 0.0)
+            )
+        elif "cache_hit" in query_stats:
+            SEMANTIC_CACHE_MISSES.inc()
 
     return response
 

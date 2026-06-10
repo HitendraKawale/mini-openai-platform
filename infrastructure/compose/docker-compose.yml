@@ -75,6 +75,9 @@ services:
       CHUNK_SIZE_WORDS: 120
       CHUNK_OVERLAP_WORDS: 20
       DEFAULT_TOP_K: 3
+      SEMANTIC_CACHE_ENABLED: "true"
+      SEMANTIC_CACHE_SIMILARITY_THRESHOLD: 0.95
+      SEMANTIC_CACHE_TTL_SECONDS: 600
     ports:
       - "8003:8003"
     depends_on:
