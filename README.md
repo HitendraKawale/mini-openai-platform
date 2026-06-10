@@ -1,353 +1,221 @@
 # Mini OpenAI Platform
 
-A **self-evaluating AI platform** built with FastAPI microservices, Qdrant, Docker Compose, Prometheus and Grafana. It exposes OpenAI-like APIs for chat completions, embeddings, document upload and RAG.
+[![CI](https://github.com/HitendraKawale/mini-openai-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/HitendraKawale/mini-openai-platform/actions/workflows/ci.yml)
 
-Most RAG stacks can serve answers but can't tell you whether they're any good, what they cost, or when they regress. This one can — it goes beyond the standard build in three ways:
+A **self-evaluating LLM platform**. It serves OpenAI-style APIs for chat, embeddings and RAG — and unlike most RAG stacks, it can tell you whether its answers are good, what they cost, and when quality regresses.
 
-- **[Semantic caching](#semantic-cache)** — paraphrased queries are answered from cache without touching the LLM, and the saved compute is measured on a dashboard
-- **[Smart model routing](#smart-model-routing)** — a difficulty heuristic sends easy prompts to a small model and hard ones to a larger one, with automatic fallback between tiers
-- **[RAG evaluation with a CI quality gate](#rag-evaluation--quality-gate)** — a golden dataset grades retrieval (recall@k, MRR) on every push and **fails the build when quality regresses**
+<!-- SCREENSHOT SLOT 1 — hero: frontend showing a cached RAG answer (⚡ badge) with sources expanded. Ideally a short demo GIF (docs/images/demo.gif) instead of a static image. -->
+![Frontend demo](docs/images/demo.png)
 
----
+## Why this isn't another RAG demo
+
+| | What it does | Why it matters |
+|---|---|---|
+| [Semantic caching](#semantic-cache) | Paraphrased queries are answered from cache without touching the LLM | Cache hits return in ~0.1s vs ~9s generated; savings are graphed in LLM-seconds |
+| [Smart model routing](#smart-model-routing) | A difficulty heuristic routes easy prompts to a small model, hard ones to a large one | Cost-aware inference with the verdict exposed in every response |
+| [CI quality gate](#rag-evaluation--quality-gate) | A golden dataset grades retrieval (recall@k, MRR) on every push | **The build fails when answer quality regresses** — regression testing for RAG |
+
+Everything is observable: 16 Grafana panels cover traffic, latency, tokens, cache economics, retrieval quality and per-model routing.
 
 ## Architecture
+
 ![System Architecture](docs/images/architecture.png)
 
-## RAG Flow
+| Service | Responsibility |
+|---|---|
+| **api-gateway** :8000 | Auth (multi-key, constant-time), rate limiting, response caching, CORS, upload caps, routing |
+| **llm-service** :8001 | Generation via Ollama with difficulty-based model routing and tier fallback |
+| **embedding-service** :8002 | `all-MiniLM-L6-v2` sentence embeddings |
+| **rag-service** :8003 | Ingestion, chunking, retrieval, semantic cache, grounded generation |
+| **frontend** :8080 | React SPA; nginx proxies `/api/*` to the gateway (single origin, no CORS) |
+| **qdrant** :6333 | Vector store: document chunks + semantic cache collections |
+| **prometheus** :9090 / **grafana** :3000 | Metrics and dashboards |
+
+All ports are loopback-bound — on a public host, nothing is reachable until a reverse proxy fronts the gateway.
+
+<details>
+<summary>RAG request flow</summary>
+
 ```
-Client
-  │
-  │ POST /v1/rag/query
-  ▼
-API Gateway
-  │
-  │ validate token + request_id
-  ▼
-RAG Service
-  │
-  │ 1. Embed query
-  ▼
-Embedding Service
-  │
-  │ query vector
-  ▼
-RAG Service
-  │
-  │ 2. Semantic cache lookup ──► similar query cached?
-  │                              return answer + sources (no LLM call)
-  │
-  │ 3. Retrieve top-k chunks
-  ▼
-Qdrant
-  │
-  │ relevant chunks
-  ▼
-RAG Service
-  │
-  │ 4. Build grounded prompt
-  │ 5. Call LLM Service
-  ▼
-LLM Service
-  │
-  │ route by difficulty: small or large model
-  ▼
-Ollama
-  │
-  │ generated grounded answer
-  ▼
-LLM Service
-  │
-  ▼
-RAG Service
-  │
-  │ answer + sources
-  ▼
-API Gateway
-  │
-  ▼
-Client
+Client ─► API Gateway ─► RAG Service
+                           │ 1. embed query          (Embedding Service)
+                           │ 2. semantic cache lookup ──► hit? return answer + sources, no LLM call
+                           │ 3. retrieve top-k chunks (Qdrant)
+                           │ 4. build grounded prompt
+                           ▼
+                         LLM Service ─► route by difficulty: small / large model (Ollama)
+                           │
+                           ▼
+                         answer + sources + cache/routing metadata ─► Client
 ```
----
+</details>
 
-## Services
+## Quickstart
 
-- **api-gateway** — auth, request IDs, rate limiting, caching, routing
-- **llm-service** — text generation using Ollama, with difficulty-based model routing
-- **embedding-service** — embeddings using `all-MiniLM-L6-v2`
-- **rag-service** — ingestion, chunking, retrieval, semantic caching, answer generation
-- **qdrant** — vector database
-- **prometheus** — metrics
-- **grafana** — dashboards
+Requires Docker and [Ollama](https://ollama.com) on the host with the two routing tiers pulled:
 
----
+```bash
+ollama pull llama3.2:3b && ollama pull phi3:latest
 
-## Features
-- API gateway routing
-- request tracing with X-Request-ID
-- API key auth
-- rate limiting
-- response caching
-- **semantic caching for RAG queries** — semantically similar queries skip the LLM entirely
-- **smart model routing** — easy prompts go to a small model, hard ones to a larger one, with automatic fallback
-- persistent Qdrant storage
-- Prometheus + Grafana monitoring (including cache hit rate and LLM time saved)
-- Docker healthchecks
-- GitHub Actions CI
+docker compose -f infrastructure/compose/docker-compose.yml up -d --build
+```
+
+Open **http://localhost:8080** (default API key: `dev-secret-key`) and:
+
+1. **Chat mode** — ask *"What is the capital of France?"*, then *"Explain why HNSW indexes trade recall for speed"*. Compare the routing badges.
+2. **RAG mode** — upload a document (`+ doc`), ask about it, expand the sources. Ask the same thing again and watch the ⚡ cached answer land instantly.
+
+Grafana lives at http://localhost:3000 (`admin`/`admin`).
+
+## The Frontend
+
+The UI surfaces the platform's internals instead of hiding them: every answer carries badges for the serving model, the routing verdict with its difficulty score, cache status, latency, and (in RAG mode) the retrieved chunks with similarity scores.
+
+<!-- SCREENSHOT SLOT 2 — chat mode: two answers side by side, one "routed small · difficulty ~0.05", one "routed large · difficulty ~0.45". -->
+![Routing badges in chat mode](docs/images/frontend-routing.png)
+
+<!-- SCREENSHOT SLOT 3 — RAG mode: a generated answer with sources expanded, followed by the same question answered with the ⚡ semantic cache badge. -->
+![RAG sources and semantic cache hit](docs/images/frontend-rag-cache.png)
 
 ## Semantic Cache
 
-Exact-match caches are nearly useless for natural language — "how does RAG work?"
-and "explain how retrieval augmented generation works" never share a cache key.
-This platform caches at the *meaning* level instead:
+Exact-match caches are useless for natural language — *"how does RAG work?"* and *"explain retrieval augmented generation"* never share a key. This platform caches at the meaning level: answered queries are stored in a dedicated Qdrant collection keyed by their **embedding**, and a new query whose cosine similarity clears the threshold is served the cached answer — skipping retrieval and generation entirely.
 
-1. Every answered RAG query is stored in a dedicated Qdrant collection
-   (`rag_semantic_cache`) keyed by its **query embedding**, along with the
-   answer, sources, and how long generation took.
-2. New queries are embedded (which the RAG flow needs anyway), then checked
-   against the cache first. A cosine similarity above the threshold
-   (default `0.95`) returns the cached answer — skipping retrieval and the
-   LLM call entirely.
-3. Entries expire after a TTL (default 10 min), and the whole cache is
-   invalidated when new documents are uploaded, since the corpus changed.
+Two safeguards keep cached answers honest: entries expire after a TTL, and **any document upload invalidates the whole cache**, because the corpus the answers were grounded in has changed.
 
-Cached responses are marked with `"cached": true`, and Prometheus tracks
-`rag_semantic_cache_hits_total`, `rag_semantic_cache_misses_total`, and
-`rag_semantic_cache_latency_saved_seconds_total` — the Grafana dashboard
-shows the hit rate and total LLM generation time saved.
-
-Tuning (env vars on `rag-service`):
-
-| Variable | Default | Meaning |
+| Env (rag-service) | Default | |
 |---|---|---|
-| `SEMANTIC_CACHE_ENABLED` | `true` | turn the cache on/off |
+| `SEMANTIC_CACHE_ENABLED` | `true` | |
 | `SEMANTIC_CACHE_SIMILARITY_THRESHOLD` | `0.95` | min cosine similarity for a hit |
 | `SEMANTIC_CACHE_TTL_SECONDS` | `600` | entry lifetime |
 
 ## Smart Model Routing
 
-Running every prompt through the biggest model wastes compute. The
-llm-service routes each generation by a transparent difficulty heuristic
-(prompt length, reasoning keywords like *explain/compare/why*, multi-part
-questions, code) scored in `[0, 1]`:
+Running every prompt through the biggest model wastes compute. The llm-service scores each prompt's difficulty in `[0, 1]` with a transparent heuristic — length (RAG prompts carry retrieved context and score high), reasoning keywords (*explain / compare / why / step by step*), multi-part questions, code — and routes below-threshold prompts to the small tier. If the chosen tier fails, the request falls back to the other tier instead of erroring.
 
-- score below the threshold → **small model** (`llama3.2:3b`)
-- score at or above it → **large model** (`phi3:latest`)
-- RAG prompts carry retrieved context, so they are long and naturally
-  route to the large model
-- `"model": "auto"` (or omitted) enables routing; an explicit model name
-  pins the request
-- if the chosen tier fails, the request **falls back** to the other tier
-  instead of erroring
-
-Responses include the verdict:
+The verdict ships in every response, so routing is debuggable from the client:
 
 ```json
-"routing": {"decision": "routed_small", "difficulty": 0.12, "fallback_used": false}
+"routing": {"decision": "routed_small", "difficulty": 0.0468, "fallback_used": false}
 ```
 
-Per-model request rate, P95 latency, token usage, routing decisions and
-fallbacks are all exported to Prometheus and graphed in Grafana.
+`"model": "auto"` (the default) enables routing; an explicit model name pins the request. The heuristic was chosen over an ML classifier deliberately: zero added latency, no training data needed, and every decision is explainable.
 
-Tuning (env vars on `llm-service`):
-
-| Variable | Default | Meaning |
+| Env (llm-service) | Default | |
 |---|---|---|
-| `ROUTING_ENABLED` | `false` (`true` in compose) | turn routing on/off |
-| `OLLAMA_SMALL_MODEL` | `llama3.2:3b` | model for easy prompts |
-| `OLLAMA_LARGE_MODEL` | `phi3:latest` | model for hard prompts |
-| `ROUTING_THRESHOLD` | `0.3` | difficulty cutoff between tiers |
+| `ROUTING_ENABLED` | `false` (`true` in compose) | |
+| `OLLAMA_SMALL_MODEL` | `llama3.2:3b` | easy prompts |
+| `OLLAMA_LARGE_MODEL` | `phi3:latest` | hard prompts |
+| `ROUTING_THRESHOLD` | `0.3` | difficulty cutoff |
 
 ## RAG Evaluation & Quality Gate
 
-Most RAG demos can serve answers but cannot tell you whether they are any
-good. This platform ships its own evaluation harness and **blocks CI when
-retrieval quality regresses**.
+Most RAG projects cannot answer the question *"is it any good?"*. This one ships its own harness under `evals/`:
 
-The pieces (all under `evals/`):
-
-- **`corpus/`** — a small evaluation corpus of three documents on distinct
-  topics, so retrieval mistakes are detectable
-- **`golden.jsonl`** — golden questions, each with `expected_phrases` that
-  must appear in a retrieved chunk and a `reference_answer` for judging
-- **`run_eval.py`** — uploads the corpus, runs every golden question, and
-  computes:
-  - **hit rate (recall@k)** — did any retrieved chunk contain an expected phrase?
-  - **MRR** — how high was the first relevant chunk ranked?
-  - **faithfulness** (optional, needs the LLM) — an LLM judge scores each
-    generated answer 1–5 against the reference answer
-
-Run the retrieval-only gate (no LLM needed — this is what CI runs):
+- **`golden.jsonl`** — questions with `expected_phrases` that must appear in a retrieved chunk, plus reference answers
+- **`corpus/`** — a controlled corpus of three deliberately distinct documents, so retrieval mistakes are detectable
+- **`run_eval.py`** — uploads the corpus, runs every question, and grades **hit rate (recall@k)**, **MRR**, and optionally **faithfulness** (an LLM judge scores answers 1–5 against the reference)
 
 ```bash
+# what CI runs — no LLM required
 python evals/run_eval.py --retrieval-only --min-hit-rate 0.8 --min-mrr 0.5
-```
 
-Run the full evaluation including LLM-judged answer quality:
-
-```bash
+# full evaluation including LLM-judged answer quality
 python evals/run_eval.py --min-hit-rate 0.8 --min-mrr 0.5 --min-faithfulness 3.5
 ```
 
-The script writes `evals/report.json` with per-question results and exits
-non-zero if any threshold is missed. The `rag-quality-gate` CI job spins up
-qdrant + embedding-service + rag-service (no Ollama required, thanks to the
-LLM-free `POST /retrieve` endpoint) and fails the build on regression.
+The `rag-quality-gate` CI job boots qdrant + embedding-service + rag-service and **fails the build** if retrieval metrics drop below thresholds. It needs no GPU and no Ollama: the rag-service exposes an LLM-free `POST /retrieve` endpoint precisely so retrieval quality can be graded in CI. The eval report is uploaded as a build artifact on every run.
 
-> Note: the eval uploads its corpus into the running platform's Qdrant
-> collection, so prefer running it against a dev stack.
+<!-- SCREENSHOT SLOT 4 (optional but high-impact) — a PR check failing with "QUALITY GATE FAILED: hit_rate ... < min 0.8". Create a branch that breaks chunking (e.g. CHUNK_SIZE_WORDS=5), open a PR, screenshot the red check. -->
+![CI failing on retrieval regression](docs/images/ci-quality-gate.png)
 
-The rag-service also exports retrieval-quality metrics at runtime —
-`rag_retrieval_top_score` (similarity of the best chunk per query) and
-`rag_insufficient_context_answers_total` (answers that said the context was
-insufficient) — both graphed in the Grafana dashboard.
+## Observability
 
-## Frontend
+Prometheus scrapes every service; the provisioned Grafana dashboard tells the story top-to-bottom: gateway traffic → token economics → **cache hit rate and LLM-seconds saved** → **retrieval quality** → **per-model routing**.
 
-A React chat UI (served by nginx at `http://localhost:8080`) that exposes
-the platform's internals instead of hiding them:
+<!-- SCREENSHOT SLOT 5 — Grafana rows: "Semantic Cache Hit Rate" + "LLM Time Saved by Semantic Cache" + "Retrieval Top-1 Similarity Score" + "Insufficient-Context Answer Rate". -->
+![Cache economics and retrieval quality](docs/images/grafana-cache-quality.png)
 
-- **RAG mode** — upload documents, ask questions, expand the retrieved
-  source chunks with their similarity scores; answers served by the
-  semantic cache arrive in milliseconds wearing a **⚡ semantic cache** badge
-- **Chat mode** — every answer shows which model served it and the routing
-  verdict (`routed small · difficulty 0.05`), so the cost-aware routing is
-  visible per message
-- per-message latency, gateway health indicator, API key entry (stored in
-  the browser only — never baked into the bundle)
+<!-- SCREENSHOT SLOT 6 — Grafana rows: "Generations by Model" + "Generation P95 Latency by Model" + "Token Usage by Model" + "Routing Decisions". -->
+![Per-model routing dashboards](docs/images/grafana-model-routing.png)
 
-The nginx container proxies `/api/*` to the gateway, so the browser talks
-to a single origin and no internal service is exposed. For frontend
-development: `cd frontend && npm install && npm run dev` (the Vite dev
-server proxies to `localhost:8000`).
+Metrics worth knowing about:
 
-## Start the platform
+| Metric | Meaning |
+|---|---|
+| `rag_semantic_cache_latency_saved_seconds_total` | LLM generation time skipped by cache hits |
+| `rag_retrieval_top_score` (histogram) | similarity of the best retrieved chunk per query |
+| `rag_insufficient_context_answers_total` | answers that admitted the context wasn't enough |
+| `llm_generations_total{model, decision}` | who served what, and why |
+| `llm_routing_fallbacks_total` | failovers between model tiers |
+
+## API
+
+<details>
+<summary>curl examples (gateway, port 8000)</summary>
+
 ```bash
-docker compose -f infrastructure/compose/docker-compose.yml up -d --build
-```
-Then open **http://localhost:8080**.
-## Check Services
-```bash
-docker compose -f infrastructure/compose/docker-compose.yml ps
-curl http://localhost:8000/health
-curl http://localhost:8001/health
-curl http://localhost:8002/health
-curl http://localhost:8003/health
-```
-## API Examples
-### Auth:
-```http
-Authorization: Bearer dev-secret-key
-```
-### Chat
-```bash
+# Chat — "auto" lets the router pick; an explicit model name pins it
 curl -X POST http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer dev-secret-key" \
-  -d '{
-    "model": "auto",
-    "messages": [{"role": "user", "content": "Explain what are vector databases briefly."}],
-    "temperature": 0.7,
-    "max_tokens": 80,
-    "stream": false
-  }'
-```
-`"model": "auto"` (the default) lets the router pick a model by prompt
-difficulty; pass an explicit name like `"phi3:latest"` to pin one.
-### Embeddings
-```bash
+  -d '{"model": "auto", "messages": [{"role": "user", "content": "Briefly explain vector databases."}], "max_tokens": 80}'
+
+# Embeddings
 curl -X POST http://localhost:8000/v1/embeddings \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer dev-secret-key" \
-  -d '{
-    "model": "sentence-transformers/all-MiniLM-L6-v2",
-    "input": ["Embeddings help semantic search."]
-  }'
-```
-### Upload document
-```bash
+  -d '{"model": "sentence-transformers/all-MiniLM-L6-v2", "input": ["Embeddings power semantic search."]}'
+
+# Document upload
 curl -X POST http://localhost:8000/v1/documents/upload \
   -H "Authorization: Bearer dev-secret-key" \
   -F "file=@sample_rag.txt"
-```
-### RAG query
-```bash
+
+# RAG query — responses include cached status and sources with scores
 curl -X POST http://localhost:8000/v1/rag/query \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer dev-secret-key" \
-  -d '{
-    "query": "How does retrieval augmented generation work?",
-    "top_k": 2
-  }'
+  -d '{"query": "How does retrieval augmented generation work?", "top_k": 3}'
 ```
----
+</details>
 
-## Deployment/infrastructure
-```
-┌─────────────────────────────────────────────────────┐
-│                 Docker Compose Stack                │
-│-----------------------------------------------------│
-│                                                     │
-│  api-gateway        :8000                           │
-│  llm-service        :8001                           │
-│  embedding-service  :8002                           │
-│  rag-service        :8003                           │
-│  qdrant             :6333                           │
-│  prometheus         :9090                           │
-│  grafana            :3000                           │
-│                                                     │
-└─────────────────────────────────────────────────────┘
+## Production Deployment
 
-Host machine also runs:
-┌──────────────────────┐
-│        Ollama        │
-│       :11434         │
-└──────────────────────┘
-```
-
-All published ports are bound to `127.0.0.1`, so even on a public host
-nothing is exposed until a reverse proxy is put in front of the gateway.
-
-### Production overlay
-
-`docker-compose.prod.yml` runs Ollama **inside** the stack (with a one-shot
-job that pulls both routing tiers into a persistent volume), so a VPS
-deployment is a single command:
+The base compose file binds every port to `127.0.0.1`; the production overlay additionally runs Ollama **inside** the stack with a one-shot model puller, so a VPS deployment is:
 
 ```bash
-export API_GATEWAY_API_KEYS="<comma-separated real keys>"
+export API_GATEWAY_API_KEYS="<comma-separated keys>"   # one per client, constant-time compared
 export GRAFANA_ADMIN_PASSWORD="<password>"
-export CORS_ALLOWED_ORIGINS="https://your-frontend.example.com"
+export CORS_ALLOWED_ORIGINS="https://your-domain.example"
 
 docker compose -f infrastructure/compose/docker-compose.yml \
                -f infrastructure/compose/docker-compose.prod.yml up -d --build
 ```
 
-### Security hardening
+Put a TLS-terminating reverse proxy (Caddy, nginx) in front of the frontend container and nothing else needs to be exposed. Uploads are capped (`MAX_UPLOAD_BYTES`, default 5 MB) and rate limiting is per API key.
 
-- **API keys** — `API_GATEWAY_API_KEYS` accepts multiple comma-separated
-  keys (e.g. one per client); comparison is constant-time. The
-  `dev-secret-key` default only applies when no env is set.
-- **CORS** — `CORS_ALLOWED_ORIGINS` restricts browser access to the
-  gateway (defaults to `*` for local development).
-- **Upload cap** — uploads larger than `MAX_UPLOAD_BYTES` (default 5 MB)
-  are rejected with `413` before touching the RAG service.
-- **Port topology** — internal services (LLM, embeddings, RAG, Qdrant,
-  Prometheus) are loopback-bound; only a reverse proxy should be exposed.
-## CI
+## Development
 
-Three jobs in `.github/workflows/ci.yml`:
-
-- **python-checks** — compile + unit tests (chunking, prompt builder, text extraction, semantic cache, model router, eval metrics)
-- **docker-builds** — compose config validation + all four service images
-- **rag-quality-gate** — boots qdrant + embedding-service + rag-service and runs the retrieval eval; the build fails if hit rate or MRR drop below thresholds
-
-Run the same checks locally:
 ```bash
 pip install -r requirements-dev.txt
-pytest tests -q
-docker compose -f infrastructure/compose/docker-compose.yml config >/dev/null && echo OK
-python evals/run_eval.py --retrieval-only --min-hit-rate 0.8 --min-mrr 0.5
+pytest tests -q                        # 27 unit tests: chunking, prompts, cache, router, eval metrics
+cd frontend && npm install && npm run dev   # hot-reload UI against localhost:8000
 ```
-## Grafana dashboards
-![Grafana Dashboards](docs/images/grafana-dashboard1.png)
-![Grafana Dashboard](docs/images/grafana-dashboard2.png)
+
+CI (`.github/workflows/ci.yml`) runs three jobs: unit tests, Docker builds for all services, and the retrieval quality gate.
+
+## Project Layout
+
+```
+services/
+  api-gateway/        auth, rate limiting, caching, CORS, routing
+  llm-service/        Ollama client + difficulty-based model router
+  embedding-service/  sentence-transformers embeddings
+  rag-service/        chunking, retrieval, semantic cache, generation
+frontend/             React SPA + nginx API proxy
+evals/                golden dataset, corpus, eval runner (CI quality gate)
+infrastructure/       docker compose (base + prod overlay), prometheus config
+monitoring/           provisioned Grafana dashboard (16 panels)
+tests/                unit tests
+```
