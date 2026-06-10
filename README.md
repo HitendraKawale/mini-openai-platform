@@ -1,12 +1,12 @@
 # Mini OpenAI Platform
 
-This is a production-style AI platform built with FastAPI microservices, Qdrant, Docker Compose, Prometheus and Grafana.
+A **self-evaluating AI platform** built with FastAPI microservices, Qdrant, Docker Compose, Prometheus and Grafana. It exposes OpenAI-like APIs for chat completions, embeddings, document upload and RAG.
 
-The platform exposes OpenAI-like APIs for:
-- chat completions
-- embeddings
-- document upload
-- RAG
+Most RAG stacks can serve answers but can't tell you whether they're any good, what they cost, or when they regress. This one can — it goes beyond the standard build in three ways:
+
+- **[Semantic caching](#semantic-cache)** — paraphrased queries are answered from cache without touching the LLM, and the saved compute is measured on a dashboard
+- **[Smart model routing](#smart-model-routing)** — a difficulty heuristic sends easy prompts to a small model and hard ones to a larger one, with automatic fallback between tiers
+- **[RAG evaluation with a CI quality gate](#rag-evaluation--quality-gate)** — a golden dataset grades retrieval (recall@k, MRR) on every push and **fails the build when quality regresses**
 
 ---
 
@@ -33,7 +33,10 @@ Embedding Service
   ▼
 RAG Service
   │
-  │ 2. Retrieve top-k chunks
+  │ 2. Semantic cache lookup ──► similar query cached?
+  │                              return answer + sources (no LLM call)
+  │
+  │ 3. Retrieve top-k chunks
   ▼
 Qdrant
   │
@@ -41,11 +44,12 @@ Qdrant
   ▼
 RAG Service
   │
-  │ 3. Build grounded prompt
-  │ 4. Call LLM Service
+  │ 4. Build grounded prompt
+  │ 5. Call LLM Service
   ▼
 LLM Service
   │
+  │ route by difficulty: small or large model
   ▼
 Ollama
   │
@@ -70,7 +74,7 @@ Client
 - **api-gateway** — auth, request IDs, rate limiting, caching, routing
 - **llm-service** — text generation using Ollama, with difficulty-based model routing
 - **embedding-service** — embeddings using `all-MiniLM-L6-v2`
-- **rag-service** — ingestion, chunking, retrieval, answer generation
+- **rag-service** — ingestion, chunking, retrieval, semantic caching, answer generation
 - **qdrant** — vector database
 - **prometheus** — metrics
 - **grafana** — dashboards
@@ -280,14 +284,19 @@ Host machine also runs:
 └──────────────────────┘
 ```
 ## CI
+
+Three jobs in `.github/workflows/ci.yml`:
+
+- **python-checks** — compile + unit tests (chunking, prompt builder, text extraction, semantic cache, model router, eval metrics)
+- **docker-builds** — compose config validation + all four service images
+- **rag-quality-gate** — boots qdrant + embedding-service + rag-service and runs the retrieval eval; the build fails if hit rate or MRR drop below thresholds
+
+Run the same checks locally:
 ```bash
 pip install -r requirements-dev.txt
 pytest tests -q
 docker compose -f infrastructure/compose/docker-compose.yml config >/dev/null && echo OK
-```
-Workflow:
-```
-.github/workflows/ci.yml
+python evals/run_eval.py --retrieval-only --min-hit-rate 0.8 --min-mrr 0.5
 ```
 ## Grafana dashboards
 ![Grafana Dashboards](docs/images/grafana-dashboard1.png)
