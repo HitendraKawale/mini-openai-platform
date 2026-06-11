@@ -82,7 +82,7 @@ class QdrantVectorStore:
                         "document_id": document_id,
                         "filename": filename,
                         "chunk_id": f"{document_id}_chunk_{idx}",
-                        "text": chunk,
+                        "text": chunk[:80],
                     },
                 )
             )
